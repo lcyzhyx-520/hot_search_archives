@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>微博热搜档案室</title>
+    <link rel="stylesheet" type="text/css" href="iview.css">
+    <script type="text/javascript" src="http://vuejs.org/js/vue.min.js"></script>
+    <script type="text/javascript" src="iview.min.js"></script>
+    <script src="jquery.min.js"></script>
+    <script src="echarts.min.js"></script>
+    <script>
+        var _hmt = _hmt || [];
+        (function() {
+          var hm = document.createElement("script");
+          hm.src = "https://hm.baidu.com/hm.js?c30bdcd2b749dbd7301d515f752e04fa";
+          var s = document.getElementsByTagName("script")[0]; 
+          s.parentNode.insertBefore(hm, s);
+        })();
+    </script>
+
+</head>
+
+<body style="background:#eff3f5;">
+
+<div id="vue" v-cloak>
+    <div style="margin:20px auto 5px; width: 90%;text-align: center;">
+        <i-input @on-search="search" v-model="key" size="large" search enter-button="搜索一下" placeholder="输入你想搜索的热搜关键字"></i-input>
+    </div>
+    <p id="result_count" style="text-align: left; margin:5px auto;width: 90%
+    font-weight: bold; display: none"> 
+      查找到相关的{{datas.length}}条热搜 </p>
+      <div v-if="datas.length > 0" style="width: 90%;margin:0 auto">
+          <i-table  :columns="columns" :data="showList" >
+              <template slot-scope="{ row }" slot="detail">
+                  <i-button type="info" ghost size="small" @click="modalShow(row.title)">详情</i-button>
+              </template>
+          </i-table>
+          <template>
+              <Page :total="datas.length" size="small" show-elevator :page-size="countsPerPage" @on-change="changePage"/>
+          </template>
+      </div>
+    <Modal width="50%" v-model="modalVisible" title="微博热搜趋势图">
+        <div slot="footer"></div>
+        <div id="ranking_metric" style="width:100%; height:250px"></div>
+        <div id="views_metric" style="width:100%; height:250px"></div>
+    </Modal>
+</div>
+
+<script>
+    new Vue({
+      el:"#vue",
+      data:{
+        key:"",
+        countsPerPage:10,
+        modalVisible:false,
+        columns:[
+          {
+            title: '热搜名',
+            key: 'title',
+            align:"center",
+            minWidth: 70
+          },
+          {
+            title: '首次上榜时间',
+            key: 'min_time',
+            align:"center",
+            minWidth: 50
+          },
+          {
+            title: '最高排名',
+            key: 'min_ranking',
+            align:"center",
+          },
+          {
+            title: '更多',
+            slot: 'detail',
+            align:"center",
+            minWidth: 10
+          }
+        ],
+        showList:[],
+        datas:[]
+      },
+      methods: {
+          search(key) {
+              if(key) {
+                  let output = [];
+                  let countsPerPage = this.countsPerPage;
+                  $.ajaxSettings.async = false;
+                  $.get("get_hot_searches_by_key.php", {key: key}, function(result) {
+                      output = result;
+                      document.getElementById('result_count').style.display="";
+                  }, "json").fail(function() {
+                      alert("获取数据失败，请尝试刷新页面或清空浏览器缓存");
+                  });
+                  this.currPage = 1;
+                  this.datas = output;
+                  if(this.datas.length < this.countsPerPage) {
+                      this.showList = this.datas;
+                  } else {
+                      this.showList = this.datas.slice(0, this.countsPerPage);
+                  }
+              }
+          },
+          changePage(index) {
+              var _start = (index - 1) * this.countsPerPage;
+              var _end = index * this.countsPerPage;
+              this.showList = this.datas.slice(_start, _end);
+          },
+          modalShow(title) {
+              let option1;
+              let option2;
+              getHotSearchHistory(title);
+              this.modalVisible = true;
+              setupEcharts();
+
+              function setupEcharts() {
+                  var myChart1 = echarts.init(document.getElementById('ranking_metric'));
+                  var myChart2 = echarts.init(document.getElementById('views_metric'));
+                  myChart1.setOption(option1);
+                  myChart2.setOption(option2);
+                  setTimeout(() => {
+                    myChart1.resize();
+                    myChart2.resize();
+                  }, 200)
+              }
+
+
+              function getHotSearchHistory(title) {
+                  $.ajaxSettings.async = false;
+                  $.get("get_hot_search_detail.php", {title: title}, function(result) {
+                      option1 = buildRankingMetrics(result);
+                      option2 = buildViewsMetrics(result);
+                  }, "json");
+              }
+              function buildRankingMetrics(result) {
+                  var series = [];
+                  var dates = [];
+                  result.dates.split(',').forEach(function(dateStr,index,arr) {
+                      var dateInt = +dateStr;
+                      dates.push(dateInt * 1000);
+                  });
+                  var dataIntArr = [];
+                  dataStrArr = result.ranks.split(',');
+                  dataStrArr.forEach(function(data,index,arr){
+                      dataIntArr.push(+data);
+                  });
+
+                  var data = dates.map((item, idx) => [item, dataIntArr[idx]]);
+
+                  series = {
+                      name: result.title,
+                      type: 'line',
+                      data: data
+                  };
+
+                  var option = {
+                      title: {
+                          text: '排名'
+                      },
+                      dataZoom:[{ type:"inside" }],
+                      tooltip: {
+                        trigger: 'axis'
+                      },
+                      legend: {
+                          x: 'right',
+                          data:[result.title]
+                      },
+                      xAxis: {
+                          type:"time"
+                      },
+                      yAxis: {
+                          inverse:true,
+                          scale:true
+                      },
+                      series: series
+                  };
+                  return option;
+              }
+
+              function buildViewsMetrics(result) {
+                  var series = [];
+                  var dates = [];
+                  result.dates.split(',').forEach(function(dateStr,index,arr) {
+                      var dateInt = +dateStr;
+                      dates.push(dateInt * 1000);
+                  });
+                  var dataIntArr = [];
+                  dataStrArr = result.views.split(',');
+                  dataStrArr.forEach(function(data,index,arr){
+                      dataIntArr.push(+data);
+                  });
+
+                  var data = dates.map((item, idx) => [item, dataIntArr[idx]/10000]);
+
+                  series = {
+                      name: result.title,
+                      type: 'line',
+                      data: data
+                  };
+                  var option = {
+                      title: {
+                          text: '搜索量(单位:万)'
+                      },
+                      dataZoom:[{ type:"inside" }],
+                      tooltip: {
+                        trigger: 'axis'
+                      },
+                      legend: {
+                          x: 'right',
+                          data:[result.title]
+                      },
+                      xAxis: {
+                          type:"time"
+                      },
+                      yAxis: {
+                          scale:true
+                      },
+                      series: series
+                  };
+                  return option;
+              }
+          }
+      }
+    })
+</script>
+</body>
+</html>
